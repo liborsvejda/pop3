@@ -1,13 +1,15 @@
-const POP3Client = require("poplib");
+const POP3Client = require("poplib"); // https://www.npmjs.com/package/poplib
+const simpleParser = require('mailparser').simpleParser; //https://nodemailer.com/extras/mailparser/
 const http = require("http");
+const fs = require("fs");
 
-const host = "pop-173712.m12.wedos.net";
-const port = 995;
-const username = "fake@damto.cz";
-const password = "51s9;,eNt6mAK,[D9";
+const cfg = JSON.parse(fs.readFileSync("app-config.json"));
 
+/**
+ * Zpracuje a vymaze(!!!) vzdy jednu zpravu
+ */
 function zpracujMaily() {
-    let client = new POP3Client(port, host, {
+    let client = new POP3Client(cfg.port, cfg.host, {
 
         tlserrs: false,
         enabletls: true,
@@ -27,7 +29,7 @@ function zpracujMaily() {
     client.on("connect", function() {
 
         console.log("CONNECT success");
-        client.login(username, password);
+        client.login(cfg.user, cfg.pass);
 
     });
 
@@ -79,32 +81,81 @@ function zpracujMaily() {
         if (status === true) {
 
             console.log("RETR success for msgnumber " + msgnumber);
-            let i = data.indexOf("http://localhost:8080/");
+
+            //const findStr = "http://localhost:8080/";
+            const findStr = "http://univ2020031-4027.";
+
+            let mailBody = data;
+            simpleParser(data, {}, (err, parsed) => {
+                console.log(parsed);
+                let mailBody = parsed.html;
+                let i = mailBody.indexOf(findStr);
+                if (i && parsed.from.text.endsWith("@damto.cz") && parsed.subject.startsWith("Overeni")) {
+                    let url = mailBody.substr(i);
+                    i = url.indexOf("\"");
+                    url = url.substr(0,i);
+                    console.log("###"+url);
+
+                    try {
+                        http.get(url, (resp) => {
+                            let data = '';
+
+                            // A chunk of data has been recieved.
+                            resp.on('data', (chunk) => {
+                                data += chunk;
+                            });
+
+                            // The whole response has been received. Print out the result.
+                            resp.on('end', () => {
+                                console.log("###"+data);
+                            });
+
+                        }).on("error", (err) => {
+                            console.log("Error: " + err.message);
+                        });
+                    } catch (e) {
+                        console.error(e);
+                    }
+                }
+            })
+
+/*
+            let i = mailBody.indexOf(findStr);
             if (i) {
-                let url = data.substr(i);
+                let url = mailBody.substr(i);
                 i = url.indexOf(">");
-                url = url.substr(0,i);
+                url = url.substr(0,i).replace(/=\r\n/g,"");
+                url = url.replace("?token=3D","?token=");
+                if (url.endsWith("\"")) {
+                    url = url.substr(0,url.length-1);
+                }
                 console.log("###"+url);
 
-                http.get(url, (resp) => {
-                    let data = '';
+                try {
+                    http.get(url, (resp) => {
+                        let data = '';
 
-                    // A chunk of data has been recieved.
-                    resp.on('data', (chunk) => {
-                        data += chunk;
+                        // A chunk of data has been recieved.
+                        resp.on('data', (chunk) => {
+                            data += chunk;
+                        });
+
+                        // The whole response has been received. Print out the result.
+                        resp.on('end', () => {
+                            console.log("###"+data);
+                        });
+
+                    }).on("error", (err) => {
+                        console.log("Error: " + err.message);
                     });
-
-                    // The whole response has been received. Print out the result.
-                    resp.on('end', () => {
-                        console.log("###"+data);
-                    });
-
-                }).on("error", (err) => {
-                    console.log("Error: " + err.message);
-                });
+                } catch (e) {
+                    console.error(e);
+                }
             }
-            //client.dele(msgnumber);
+ */
+            // client.dele(msgnumber); //vymazani zpravy
             client.quit();
+
 
         } else {
 
@@ -133,6 +184,8 @@ function zpracujMaily() {
 
         if (status === true) console.log("QUIT success");
         else console.log("QUIT failed");
+
+        setTimeout(zpracujMaily, 10000); //opakona kontrola mailu
 
     });
 
